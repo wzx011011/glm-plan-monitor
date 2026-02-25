@@ -175,6 +175,7 @@ class GLMPlanMonitor:
         self.mcp_bars = {}
         self.data = {}
         self.running = True
+        self.compact_mode = False  # 精简模式状态
 
         self.setup_styles()
         self.setup_window()
@@ -293,16 +294,17 @@ class GLMPlanMonitor:
 
     def setup_title_bar(self):
         """设置标题栏"""
-        title_frame = tk.Frame(self.main_frame, bg=THEME['bg_dark'])
-        title_frame.pack(fill=tk.X, pady=(0, 8))
+        self.title_frame = tk.Frame(self.main_frame, bg=THEME['bg_dark'])
+        self.title_frame.pack(fill=tk.X, pady=(0, 8))
 
         # 左侧标题
-        left_frame = tk.Frame(title_frame, bg=THEME['bg_dark'])
+        left_frame = tk.Frame(self.title_frame, bg=THEME['bg_dark'])
         left_frame.pack(side=tk.LEFT)
 
-        tk.Label(left_frame, text="GLM Coding Plan",
+        self.title_label = tk.Label(left_frame, text="GLM Coding Plan",
                 font=("Microsoft YaHei UI", 11, "bold"),
-                fg=THEME['accent'], bg=THEME['bg_dark']).pack(side=tk.LEFT)
+                fg=THEME['accent'], bg=THEME['bg_dark'])
+        self.title_label.pack(side=tk.LEFT)
 
         self.plan_label = tk.Label(left_frame,
                                    text=f"[{self.config.get('plan_type', 'Lite')}]",
@@ -310,9 +312,27 @@ class GLMPlanMonitor:
                                    fg=THEME['warning'], bg=THEME['bg_dark'])
         self.plan_label.pack(side=tk.LEFT, padx=(6, 0))
 
+        # 小窗口模式下的配额显示（初始隐藏）
+        self.hourly_brief_label = tk.Label(left_frame, text="",
+                                   font=("Microsoft YaHei UI", 11, "bold"),
+                                   fg="#4ecdc4", bg=THEME['bg_dark'])
+        self.weekly_brief_label = tk.Label(left_frame, text="",
+                                   font=("Microsoft YaHei UI", 11, "bold"),
+                                   fg="#45b7d1", bg=THEME['bg_dark'])
+
         # 右侧按钮
-        right_frame = tk.Frame(title_frame, bg=THEME['bg_dark'])
+        right_frame = tk.Frame(self.title_frame, bg=THEME['bg_dark'])
         right_frame.pack(side=tk.RIGHT)
+
+        # 小窗口模式切换按钮
+        self.compact_btn = tk.Label(right_frame, text="▼",
+                               font=("Arial", 10),
+                               fg=THEME['text_secondary'], bg=THEME['bg_dark'],
+                               cursor='hand2')
+        self.compact_btn.pack(side=tk.LEFT, padx=2)
+        self.compact_btn.bind('<Button-1>', lambda e: self.toggle_compact_mode())
+        self.compact_btn.bind('<Enter>', lambda e: self.compact_btn.config(fg=THEME['accent']))
+        self.compact_btn.bind('<Leave>', lambda e: self.compact_btn.config(fg=THEME['text_secondary']))
 
         settings_btn = tk.Label(right_frame, text="⚙",
                                font=("Arial", 12),
@@ -332,33 +352,33 @@ class GLMPlanMonitor:
 
     def setup_status_bar(self):
         """设置状态栏"""
-        status_frame = tk.Frame(self.main_frame, bg=THEME['bg_dark'])
-        status_frame.pack(fill=tk.X, pady=(0, 8))
+        self.status_frame = tk.Frame(self.main_frame, bg=THEME['bg_dark'])
+        self.status_frame.pack(fill=tk.X, pady=(0, 8))
 
-        self.status_dot = tk.Label(status_frame, text="●",
+        self.status_dot = tk.Label(self.status_frame, text="●",
                                    font=("Arial", 8),
                                    fg=THEME['accent'], bg=THEME['bg_dark'])
         self.status_dot.pack(side=tk.LEFT)
 
-        self.status_label = tk.Label(status_frame, text=" 连接中...",
+        self.status_label = tk.Label(self.status_frame, text=" 连接中...",
                                      font=("Microsoft YaHei UI", 9),
                                      fg=THEME['text_secondary'], bg=THEME['bg_dark'])
         self.status_label.pack(side=tk.LEFT)
 
     def setup_quota_section(self):
         """设置配额区块"""
-        quota_frame = tk.Frame(self.main_frame, bg=THEME['bg_medium'], padx=10, pady=8)
-        quota_frame.pack(fill=tk.X, pady=(0, 8))
+        self.quota_frame = tk.Frame(self.main_frame, bg=THEME['bg_medium'], padx=10, pady=8)
+        self.quota_frame.pack(fill=tk.X, pady=(0, 8))
 
         # 区块标题
-        tk.Label(quota_frame, text="📊 配额使用",
+        tk.Label(self.quota_frame, text="📊 配额使用",
                 font=("Microsoft YaHei UI", 10, "bold"),
                 fg=THEME['text_primary'], bg=THEME['bg_medium']).pack(anchor='w', pady=(0, 8))
 
         # 配额行
-        self.create_quota_row(quota_frame, "每5小时:", "#4ecdc4", "hourly")
-        self.create_quota_row(quota_frame, "每周:", "#45b7d1", "weekly")
-        self.create_quota_row(quota_frame, "月度MCP:", "#a6e3a1", "monthly_mcp")
+        self.create_quota_row(self.quota_frame, "每5小时:", "#4ecdc4", "hourly")
+        self.create_quota_row(self.quota_frame, "每周:", "#45b7d1", "weekly")
+        self.create_quota_row(self.quota_frame, "月度MCP:", "#a6e3a1", "monthly_mcp")
 
     def create_quota_row(self, parent, label_text, color, key):
         """创建配额行"""
@@ -388,6 +408,7 @@ class GLMPlanMonitor:
                              style="Custom.Horizontal.TProgressbar")
         bar.pack(side=tk.RIGHT)
 
+        setattr(self, f"{key}_row", row)
         setattr(self, f"{key}_label", label)
         setattr(self, f"{key}_bar", bar)
         setattr(self, f"{key}_reset", reset_label)
@@ -408,10 +429,10 @@ class GLMPlanMonitor:
 
     def setup_footer(self):
         """设置底部信息"""
-        footer_frame = tk.Frame(self.main_frame, bg=THEME['bg_dark'])
-        footer_frame.pack(fill=tk.X)
+        self.footer_frame = tk.Frame(self.main_frame, bg=THEME['bg_dark'])
+        self.footer_frame.pack(fill=tk.X)
 
-        self.time_label = tk.Label(footer_frame, text="更新: --",
+        self.time_label = tk.Label(self.footer_frame, text="更新: --",
                                    font=("Microsoft YaHei UI", 8),
                                    fg=THEME['text_muted'], bg=THEME['bg_dark'])
         self.time_label.pack(anchor='w')
@@ -448,11 +469,8 @@ class GLMPlanMonitor:
 
         total_usage = sum(d.get("usage", 0) for d in usage_details) or 1
 
-        # 动态调整窗口高度
-        mcp_count = len(usage_details)
-        base_height = 330  # 基础高度
-        new_height = base_height + mcp_count * 24
-        self.root.geometry(f"320x{new_height}")
+        # 动态调整窗口高度（仅在非精简模式下）
+        self.adjust_window_height()
 
         for i, detail in enumerate(usage_details):
             model_code = detail.get("modelCode", "unknown")
@@ -498,11 +516,66 @@ class GLMPlanMonitor:
         self.root.bind('<Button-1>', start)
         self.root.bind('<B1-Motion>', drag)
 
+    def toggle_compact_mode(self):
+        """切换小窗口模式"""
+        self.compact_mode = not self.compact_mode
+
+        if self.compact_mode:
+            # === 小窗口模式 ===
+            self.compact_btn.config(text="▲")
+
+            # 隐藏标题文字，显示配额
+            self.title_label.pack_forget()
+            self.plan_label.pack_forget()
+            h_pct = self.data.get('hourly_percentage', 0)
+            w_pct = self.data.get('weekly_percentage', 0)
+            self.hourly_brief_label.config(text=f"5h: {h_pct}%")
+            self.weekly_brief_label.config(text=f"周: {w_pct}%")
+            self.hourly_brief_label.pack(side=tk.LEFT)
+            self.weekly_brief_label.pack(side=tk.LEFT, padx=(12, 0))
+
+            # 隐藏所有详细区块
+            self.status_frame.pack_forget()
+            self.quota_frame.pack_forget()
+            self.mcp_frame.pack_forget()
+            self.footer_frame.pack_forget()
+
+            # 设置小窗口模式窗口大小（只显示标题栏）
+            self.root.geometry("320x45")
+        else:
+            # === 展开模式 ===
+            self.compact_btn.config(text="▼")
+
+            # 恢复标题文字，隐藏配额
+            self.hourly_brief_label.pack_forget()
+            self.weekly_brief_label.pack_forget()
+            self.title_label.pack(side=tk.LEFT)
+            self.plan_label.pack(side=tk.LEFT, padx=(6, 0))
+
+            # 按原始顺序重新显示所有区块
+            self.status_frame.pack(fill=tk.X, pady=(0, 8))
+            self.quota_frame.pack(fill=tk.X, pady=(0, 8))
+            self.mcp_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+            self.footer_frame.pack(fill=tk.X)
+
+            # 恢复正常窗口高度
+            self.adjust_window_height()
+
+    def adjust_window_height(self):
+        """根据内容动态调整窗口高度"""
+        if self.compact_mode:
+            return
+
+        mcp_count = len(self.data.get('usage_details', []))
+        base_height = 330
+        new_height = base_height + mcp_count * 24
+        self.root.geometry(f"320x{new_height}")
+
     def show_settings(self):
         """显示设置窗口"""
         win = tk.Toplevel(self.root)
         win.title("设置")
-        win.geometry("400x500")
+        win.geometry("400x580")
         win.attributes('-topmost', True)
         win.configure(bg=THEME['bg_dark'])
         win.resizable(False, False)
